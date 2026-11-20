@@ -12,21 +12,331 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - name: Accept Android licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Arrange project
-        run: bash arrange.sh
+      - name: Generate Android project
+        run: |
+          set -e
+          mkdir -p proj && cd proj
+          mkdir -p app
+          cat > app/build.gradle <<'EOF_0'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'ir.ganjineketab.app'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "ir.ganjineketab.app"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              signingConfigs {
+                  main {
+                      storeFile file("ganjine.keystore")
+                      storePassword "ganjine123"
+                      keyAlias "ganjine"
+                      keyPassword "ganjine123"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.main
+                  }
+                  debug {
+                      signingConfig signingConfigs.main
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF_0
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF_1'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|uiMode|layoutDirection"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF_1
+          mkdir -p app/src/main/java/ir/ganjineketab/app
+          cat > app/src/main/java/ir/ganjineketab/app/MainActivity.java <<'EOF_2'
+          package ir.ganjineketab.app;
+
+          import android.app.Activity;
+          import android.app.AlertDialog;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.net.ConnectivityManager;
+          import android.net.NetworkInfo;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.KeyEvent;
+          import android.view.ViewGroup;
+          import android.webkit.JsPromptResult;
+          import android.webkit.JsResult;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.EditText;
+
+          public class MainActivity extends Activity {
+
+              private static final int FILE_CHOOSER = 1001;
+
+              private WebView web;
+              private String startUrl;
+              private ValueCallback<Uri[]> filePathCallback;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  startUrl = getString(R.string.start_url);
+
+                  web = new WebView(this);
+                  web.setLayoutParams(new ViewGroup.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                  setContentView(web);
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);       // localStorage (ذخیره‌ی داده‌ها روی گوشی)
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(false);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setCacheMode(isOnline() ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_CACHE_ELSE_NETWORK);
+
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          Uri u = r.getUrl();
+                          String host = Uri.parse(startUrl).getHost();
+                          if (host != null && host.equals(u.getHost())) return false;
+                          try {
+                              startActivity(new Intent(Intent.ACTION_VIEW, u));
+                          } catch (Exception ignored) { }
+                          return true;
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                          if (r.isForMainFrame()) showOffline();
+                      }
+                  });
+
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onJsAlert(WebView v, String url, String msg, final JsResult r) {
+                          new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                                  .setPositiveButton("باشه", (d, w) -> r.confirm())
+                                  .setOnCancelListener(d -> r.cancel()).show();
+                          return true;
+                      }
+
+                      @Override
+                      public boolean onJsConfirm(WebView v, String url, String msg, final JsResult r) {
+                          new AlertDialog.Builder(MainActivity.this).setMessage(msg)
+                                  .setPositiveButton("بله", (d, w) -> r.confirm())
+                                  .setNegativeButton("خیر", (d, w) -> r.cancel())
+                                  .setOnCancelListener(d -> r.cancel()).show();
+                          return true;
+                      }
+
+                      @Override
+                      public boolean onJsPrompt(WebView v, String url, String msg, String def, final JsPromptResult r) {
+                          final EditText input = new EditText(MainActivity.this);
+                          input.setText(def);
+                          new AlertDialog.Builder(MainActivity.this).setMessage(msg).setView(input)
+                                  .setPositiveButton("تأیید", (d, w) -> r.confirm(input.getText().toString()))
+                                  .setNegativeButton("لغو", (d, w) -> r.cancel())
+                                  .setOnCancelListener(d -> r.cancel()).show();
+                          return true;
+                      }
+
+                      @Override
+                      public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                          if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                          filePathCallback = cb;
+                          try {
+                              startActivityForResult(p.createIntent(), FILE_CHOOSER);
+                          } catch (Exception e) {
+                              filePathCallback = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+
+                  if (savedInstanceState != null) {
+                      web.restoreState(savedInstanceState);
+                  } else {
+                      web.loadUrl(startUrl);
+                  }
+              }
+
+              private boolean isOnline() {
+                  ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                  NetworkInfo n = cm == null ? null : cm.getActiveNetworkInfo();
+                  return n != null && n.isConnected();
+              }
+
+              private void showOffline() {
+                  String html = "<html dir='rtl'><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+                          + "<body style='font-family:sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b'>"
+                          + "<h2>اتصال به اینترنت برقرار نیست</h2>"
+                          + "<p>اینترنت را بررسی کنید و دوباره تلاش کنید.</p>"
+                          + "<a href='" + startUrl + "' style='display:inline-block;margin-top:20px;padding:12px 28px;"
+                          + "background:#4f46e5;color:#fff;border-radius:12px;text-decoration:none'>تلاش دوباره</a>"
+                          + "</body></html>";
+                  web.loadDataWithBaseURL(startUrl, html, "text/html", "UTF-8", null);
+              }
+
+              @Override
+              protected void onActivityResult(int req, int res, Intent data) {
+                  if (req == FILE_CHOOSER && filePathCallback != null) {
+                      filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
+                      filePathCallback = null;
+                      return;
+                  }
+                  super.onActivityResult(req, res, data);
+              }
+
+              @Override
+              public boolean onKeyDown(int keyCode, KeyEvent event) {
+                  if (keyCode == KeyEvent.KEYCODE_BACK && web.canGoBack()) {
+                      web.goBack();
+                      return true;
+                  }
+                  return super.onKeyDown(keyCode, event);
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  web.onResume();
+              }
+
+              @Override
+              protected void onPause() {
+                  web.onPause();
+                  super.onPause();
+              }
+          }
+          EOF_2
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/config.xml <<'EOF_3'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <!-- آدرس سایت. اپ همیشه همین آدرس را باز می‌کند؛ پس با آپدیت سایت، اپ هم آپدیت می‌شود -->
+              <string name="start_url" translatable="false">https://tahadaeini4-gif.github.io/GANJENE_KETAB6/</string>
+          </resources>
+          EOF_3
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'EOF_4'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">گنجینه ی کتاب</string>
+          </resources>
+          EOF_4
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/styles.xml <<'EOF_5'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+                  <item name="android:statusBarColor">#4f46e5</item>
+                  <item name="android:navigationBarColor">#ffffff</item>
+                  <item name="android:windowBackground">#f8fafc</item>
+              </style>
+          </resources>
+          EOF_5
+          cat > build.gradle <<'EOF_6'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          EOF_6
+          cat > gradle.properties <<'EOF_7'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          EOF_7
+          cat > settings.gradle <<'EOF_8'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "GanjineKetab"
+          include(":app")
+          EOF_8
+          echo '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' | base64 -d > app/ganjine.keystore
+          pip install --break-system-packages pillow >/dev/null
+          curl -fsSL https://tahadaeini4-gif.github.io/GANJENE_KETAB6/logo.png -o logo.png || true
+          python3 - <<'EOF_PY'
+          from PIL import Image
+          import os
+          try:
+              src=Image.open('logo.png').convert('RGBA')
+          except Exception:
+              src=Image.new('RGBA',(512,512),(79,70,229,255))
+          base='app/src/main/res'
+          for d,s in {'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}.items():
+              os.makedirs(f'{base}/mipmap-{d}',exist_ok=True)
+              bg=Image.new('RGBA',(s,s),(255,255,255,255))
+              bg.alpha_composite(src.resize((s,s),Image.LANCZOS))
+              bg.convert('RGB').save(f'{base}/mipmap-{d}/ic_launcher.png')
+          EOF_PY
 
       - name: Build release APK
         working-directory: proj
