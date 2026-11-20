@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- آدرس سایت. اپ همیشه همین آدرس را باز می‌کند؛ پس با آپدیت سایت، اپ هم آپدیت می‌شود -->
+    <string name="start_url" translatable="false">https://tahadaeini4-gif.github.io/GANJENE_KETAB6/</string>
+</resources>

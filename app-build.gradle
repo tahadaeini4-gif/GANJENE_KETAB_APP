@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ir.ganjineketab.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "ir.ganjineketab.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        main {
+            storeFile file("ganjine.keystore")
+            storePassword "ganjine123"
+            keyAlias "ganjine"
+            keyPassword "ganjine123"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.main
+        }
+        debug {
+            signingConfig signingConfigs.main
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
